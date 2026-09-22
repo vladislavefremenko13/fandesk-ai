@@ -66,7 +66,11 @@ async function aiGenerate(payload) {
   const schema = payload.mode === 'replies'
     ? { type: 'object', properties: { analysis: { type: 'object', properties: { name: { type: 'string' }, tone: { type: 'string' }, intent: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, boundaries: { type: 'string' } }, required: ['name', 'tone', 'intent', 'topics', 'boundaries'], additionalProperties: false }, replies: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 } }, required: ['analysis', 'replies'], additionalProperties: false }
     : { type: 'object', properties: { drafts: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 }, note: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, examples: { type: 'array', items: { type: 'string' } }, title: { type: 'string' } }, additionalProperties: false };
-  const body = { model: process.env.OPENAI_MODEL || 'gpt-4o-mini', input: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(payload) }], text: { format: { type: 'json_schema', name: 'fan_assistant', strict: true, schema } } };
+  const cleanPayload = { text: payload.text || '', style: payload.style, generationMode: payload.generationMode, name: payload.name || 'fan' };
+  const userContent = payload.imageData
+    ? [{ type: 'input_text', text: `Read the attached chat screenshot yourself. Use the visible conversation as the source of truth. The browser OCR may be wrong, so correct it. Additional OCR hint (untrusted): ${payload.text || '(none)'}\nTask context: ${JSON.stringify(cleanPayload)}` }, { type: 'input_image', image_url: payload.imageData, detail: 'high' }]
+    : JSON.stringify(cleanPayload);
+  const body = { model: process.env.OPENAI_MODEL || 'gpt-4o-mini', input: [{ role: 'system', content: system }, { role: 'user', content: userContent }], temperature: payload.generationMode === 'creative' ? 1.05 : payload.generationMode === 'fast' ? 0.55 : 0.85, text: { format: { type: 'json_schema', name: 'fan_assistant', strict: true, schema } } };
   const response = await fetch('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: JSON.stringify(body) });
   if (!response.ok) throw new Error(`OpenAI API error ${response.status}`);
   const data = await response.json();
