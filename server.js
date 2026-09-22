@@ -13,6 +13,16 @@ const STYLE_RULES = {
   classy: 'calm, elegant and lightly flirtatious'
 };
 
+const ZOOMER_RULES = `lazy gen-z texting voice: always lowercase, never use apostrophes, never capitalize the first word, short imperfect messages, use hehe often but naturally. Rotate slang such as ty, thx, gm, lil, ntmy, tbh, btw, ofc, smth, wyd, ngl, what u up to, cuz, bc, nah, nope, yay, yea, yep, yup, wtf, omg, idk, asf, af, fr, lol, lmao, <3, ><, >.<, >,<, :p, :d, xd, :3, >w<. Do not force slang into every sentence.`;
+
+const HARD_BAN_TERMS = [
+  'celebrity ai','deepfake','face swap','ai generated','synthetic media','abdl','age play','ageplay','child','minor','teenager','underage','loli','shota','animal','bestiality','corpse','dead body','furry','necrophilia','zoophilia','extreme bondage','blood play','urine','vomit','incest','catfish','fake account','impersonate','stolen identity','terrorism','escort','full service','hooker','human trafficking','meet me','meet up','prostitute','prostitution','revenge porn','rape','non-consensual','kidnap','murder','torture','cashapp','crypto wallet','paypal','venmo','zelle','explicit banner','nude avatar','google ads','self-harm','suicide','cocaine','fentanyl','heroin','meth','molly','bot','buy followers','fake followers','gambling','lottery','sweepstake','worn panties'
+];
+const REVIEW_TERMS = ['ai chatbot','barely legal','fresh 18','just turned 18','slave','onlyfans','fanvue','loyalfans','pornhub','choke','strangle','leaked','stolen content','public','gun','knife','weapon','alcohol','cannabis'];
+function hasTerm(text, terms) { const lower = String(text).toLowerCase(); return terms.find(term => lower.includes(term)); }
+function normalizeZoomer(text) { return String(text).replace(/[’']/g, '').toLowerCase(); }
+function complianceNote(text) { const hard = hasTerm(text, HARD_BAN_TERMS); const review = hasTerm(text, REVIEW_TERMS); return hard ? `blocked term detected: ${hard}` : review ? `review term detected: ${review}` : null; }
+
 const pick = items => items[Math.floor(Math.random() * items.length)];
 
 function localGenerate({ text = '', style = 'warm', mode = 'replies', name = 'fan', generationMode = 'smart' }) {
@@ -23,30 +33,36 @@ function localGenerate({ text = '', style = 'warm', mode = 'replies', name = 'fa
   if (mode === 'scenario') return {
     title: 'Light flirt, no pressure',
     steps: ['Reply to his last thought before changing the subject.', 'Ask one open question about ' + topic + '.', 'Add one personal detail and invite him to continue.', 'If he replies briefly, give him space instead of pushing.'],
-    examples: ['“okay, now I’m actually curious — what usually catches your attention?”' + suffix, '“tell me more, I’m listening 👀”' + suffix]
+    examples: ['okay, now im actually curious — what usually catches your attention?' + suffix, 'tell me more, im listening 👀' + suffix]
   };
   if (mode === 'broadcast') return {
     drafts: [
-      `hey ${name}, just checking in — how’s your day going?${suffix}`,
+      `hey ${name}, just checking in — hows your day going?${suffix}`,
       `i’m in the mood for a good conversation tonight. what’s new with you?${suffix}`,
       `quick question: what has been making you smile lately?${suffix}`
     ],
     note: 'Review personalization and platform limits before sending; do not send the exact same copy to everyone.'
   };
   const openers = hasQuestion ? ['That’s a good question — I’d answer honestly and keep the conversation moving.', 'I like that question. It gives us something fun to talk about.'] : ['That sounds like a mood worth talking about.', 'I like the way you put that.'];
-  return {
+  const result = {
     analysis: { name, tone: style === 'genz' ? 'casual' : 'friendly', intent: hasQuestion ? 'wants the conversation to continue' : 'sharing context', topics: [topic], boundaries: 'do not infer personality from one message' },
     replies: [
-      `${pick(openers)} ${style === 'genz' ? 'ngl, tell me a little more?' : 'Would you tell me a little more?'}${suffix}`,
-      `${pick(['I like how you put that.', 'You’ve got my attention.'])} What matters most to you about it?${suffix}`,
-      `${pick(['Now I want the story behind it.', 'Okay, I need the next chapter.'])} How did you get into it?${suffix}`
+      `${pick(openers)} ${style === 'genz' ? 'ngl, tell me a lil more?' : 'would you tell me a little more?'}${suffix}`,
+      `${pick(['i like how you put that.', 'youve got my attention.'])} what matters most to you about it?${suffix}`,
+      `${pick(['now i want the story behind it.', 'okay, i need the next chapter.'])} how did you get into it?${suffix}`
     ]
   };
+  if (style === 'genz') result.replies = result.replies.map(normalizeZoomer);
+  return result;
 }
 
 async function aiGenerate(payload) {
-  if (!process.env.OPENAI_API_KEY) return localGenerate(payload);
-  const system = `You are a writing assistant for a creator chatting with adult subscribers. Generate only romantic or light flirtation without explicit sexual descriptions, sexual instructions, or promises on the creator's behalf. Do not infer age from an image or text. Always return JSON. All analysis, scenarios and replies must be in English. Style: ${STYLE_RULES[payload.style] || STYLE_RULES.warm}. Generation mode: ${payload.generationMode || 'smart'}; make each response fresh and distinct from common templates. Random seed: ${payload.seed || Math.random().toString(36).slice(2)}.`;
+  const inputIssue = complianceNote(payload.text || '');
+  if (!process.env.OPENAI_API_KEY) {
+    const fallback = localGenerate(payload);
+    return inputIssue ? { ...fallback, note: inputIssue } : fallback;
+  }
+  const system = `You are a writing assistant for a creator chatting with adult subscribers. Generate only romantic or light flirtation without explicit sexual descriptions, sexual instructions, or promises on the creator's behalf. Do not infer age from an image or text. Always return JSON. All analysis, scenarios and replies must be in English. Style: ${STYLE_RULES[payload.style] || STYLE_RULES.warm}. ${payload.style === 'genz' ? ZOOMER_RULES : ''} Generation mode: ${payload.generationMode || 'smart'}; make each response fresh and distinct from common templates. Never use any hard-ban Fansly term or flagged term; if the input contains one, return a neutral safe reply and mention review in the note. Random seed: ${payload.seed || Math.random().toString(36).slice(2)}. Hard-ban terms: ${HARD_BAN_TERMS.join(', ')}. Review terms: ${REVIEW_TERMS.join(', ')}.`;
   const schema = payload.mode === 'replies'
     ? { type: 'object', properties: { analysis: { type: 'object', properties: { name: { type: 'string' }, tone: { type: 'string' }, intent: { type: 'string' }, topics: { type: 'array', items: { type: 'string' } }, boundaries: { type: 'string' } }, required: ['name', 'tone', 'intent', 'topics', 'boundaries'], additionalProperties: false }, replies: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 } }, required: ['analysis', 'replies'], additionalProperties: false }
     : { type: 'object', properties: { drafts: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 }, note: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, examples: { type: 'array', items: { type: 'string' } }, title: { type: 'string' } }, additionalProperties: false };
@@ -55,7 +71,15 @@ async function aiGenerate(payload) {
   if (!response.ok) throw new Error(`OpenAI API error ${response.status}`);
   const data = await response.json();
   const raw = data.output?.flatMap(x => x.content || []).find(x => x.type === 'output_text')?.text;
-  return raw ? JSON.parse(raw) : localGenerate(payload);
+  if (!raw) return localGenerate(payload);
+  const parsed = JSON.parse(raw);
+  const allText = JSON.stringify(parsed);
+  const issue = complianceNote(allText);
+  if (issue) return { ...localGenerate({ ...payload, style: 'genz' }), note: issue };
+  if (parsed.replies) parsed.replies = parsed.replies.map(normalizeZoomer);
+  if (parsed.drafts) parsed.drafts = parsed.drafts.map(normalizeZoomer);
+  if (parsed.examples) parsed.examples = parsed.examples.map(normalizeZoomer);
+  return parsed;
 }
 
 async function bodyJson(req) { let s = ''; for await (const chunk of req) s += chunk; return JSON.parse(s || '{}'); }
